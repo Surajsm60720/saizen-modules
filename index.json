@@ -20,5 +20,16 @@
     "type": "anime",
     "quality": "480p",
     "nsfw": true
+  },
+  {
+    "id": "hentaimama",
+    "sourceName": "Hentaimama",
+    "scriptUrl": "https://raw.githubusercontent.com/Surajsm60720/saizen-modules/main/hentaimama.js",
+    "baseUrl": "https://hentaimama.io",
+    "streamType": "MP4",
+    "status": "active",
+    "type": "anime",
+    "quality": "HD",
+    "nsfw": true
   }
 ]
