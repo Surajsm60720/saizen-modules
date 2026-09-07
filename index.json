@@ -9,5 +9,16 @@
     "type": "anime",
     "quality": "720p",
     "nsfw": true
+  },
+  {
+    "id": "haho",
+    "sourceName": "Haho",
+    "scriptUrl": "https://raw.githubusercontent.com/Surajsm60720/saizen-modules/main/haho.js",
+    "baseUrl": "https://haho.moe",
+    "streamType": "MP4",
+    "status": "active",
+    "type": "anime",
+    "quality": "480p",
+    "nsfw": true
   }
 ]
