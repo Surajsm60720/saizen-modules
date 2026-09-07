@@ -31,5 +31,16 @@
     "type": "anime",
     "quality": "HD",
     "nsfw": true
+  },
+  {
+    "id": "hentaihaven",
+    "sourceName": "HentaiHaven",
+    "scriptUrl": "https://raw.githubusercontent.com/Surajsm60720/saizen-modules/main/hentaihaven.js",
+    "baseUrl": "https://hentaihaven.com",
+    "streamType": "HLS",
+    "status": "active",
+    "type": "anime",
+    "quality": "Auto",
+    "nsfw": true
   }
 ]
