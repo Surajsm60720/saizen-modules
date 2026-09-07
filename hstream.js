@@ -158,14 +158,46 @@ async function searchResults(query) {
     }
   });
 
-  return Object.keys(bySeries).map(function (key) {
-    var card = bySeries[key];
-    return {
-      title: titleFromSlug(card.slug),
-      image: card.image,
-      url: card.url
-    };
-  });
+  var keys = Object.keys(bySeries);
+  if (keys.length) {
+    return keys.map(function (key) {
+      var card = bySeries[key];
+      return {
+        title: titleFromSlug(card.slug),
+        image: card.image,
+        url: card.url
+      };
+    });
+  }
+
+  // Fallback: many adult titles are reachable as /hentai/<slug>-1 even when the
+  // Livewire search page is flaky or the query tokens don't match card text.
+  var slug = String(query || '')
+    .toLowerCase()
+    .replace(/\(.*?\)/g, ' ')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  if (!slug) return [];
+
+  var candidates = [BASE + '/hentai/' + slug + '-1', BASE + '/hentai/' + slug];
+  for (var i = 0; i < candidates.length; i++) {
+    var probe = candidates[i];
+    try {
+      var res = await fetchv2(probe, headers(BASE + '/'), 'GET', null);
+      if (res.ok) {
+        return [
+          {
+            title: titleFromSlug(slugFromUrl(probe) || slug + '-1'),
+            image: '',
+            url: probe
+          }
+        ];
+      }
+    } catch (e) {
+      // try next
+    }
+  }
+  return [];
 }
 
 async function extractEpisodes(showUrl) {
