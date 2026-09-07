@@ -165,7 +165,8 @@ async function searchResults(query) {
       return {
         title: titleFromSlug(card.slug),
         image: card.image,
-        url: card.url
+        // Carry Livewire episode id so extractStreamUrl can skip brittle HTML parsing.
+        url: card.url + (card.url.indexOf('?') >= 0 ? '&' : '?') + 'eid=' + card.episodeId
       };
     });
   }
@@ -215,7 +216,11 @@ async function extractEpisodes(showUrl) {
 
   return siblings
     .map(function (card) {
-      return { url: card.url, number: episodeNumber(card.slug) };
+      var url = card.url;
+      if (card.episodeId && url.indexOf('eid=') < 0) {
+        url = url + (url.indexOf('?') >= 0 ? '&' : '?') + 'eid=' + card.episodeId;
+      }
+      return { url: url, number: episodeNumber(card.slug) };
     })
     .sort(function (a, b) {
       return a.number - b.number;
@@ -240,32 +245,43 @@ function readXsrfToken(res) {
 }
 
 async function extractStreamUrl(episodeUrl) {
-  var pageRes = await fetchv2(episodeUrl, headers(BASE + '/search'), 'GET', null);
+  var eidFromQuery = (String(episodeUrl).match(/[?&]eid=(\d+)/) || [])[1] || '';
+  var cleanUrl = String(episodeUrl).replace(/[?&]eid=\d+/g, '').replace(/\?$/, '');
+
+  // Warm Laravel session + XSRF-TOKEN cookie (native bridge injects X-XSRF-TOKEN on POST).
+  var pageRes = await fetchv2(cleanUrl, headers(BASE + '/search'), 'GET', null);
   if (!pageRes.ok) throw new Error('hstream episode failed: HTTP ' + pageRes.status);
 
   var html = await pageRes.text();
-  var idMatch = html.match(/id="e_id"[^>]*value="(\d+)"/);
-  if (!idMatch) throw new Error('hstream: e_id not found on ' + episodeUrl);
+  var idMatch =
+    html.match(/id="e_id"[^>]*value="(\d+)"/) ||
+    html.match(/value="(\d+)"[^>]*id="e_id"/) ||
+    html.match(/name="e_id"[^>]*value="(\d+)"/) ||
+    html.match(/episode[_-]?id["'\s:=]+(\d+)/i);
 
-  var token = readXsrfToken(pageRes);
-  if (!token) {
+  var episodeId = eidFromQuery || (idMatch ? idMatch[1] : '');
+  if (!episodeId) {
     throw new Error(
-      'hstream: missing XSRF-TOKEN after episode GET (cookie jar / set-cookie bridge)'
+      'hstream: e_id not found on ' +
+        cleanUrl +
+        ' (page may be missing / geo-blocked; try Overflow)'
     );
   }
 
-  var apiHeaders = headers(episodeUrl);
+  var apiHeaders = headers(cleanUrl);
   apiHeaders['X-Requested-With'] = 'XMLHttpRequest';
   apiHeaders['Origin'] = BASE;
   apiHeaders['Content-Type'] = 'application/json';
   apiHeaders['Accept'] = 'application/json';
-  apiHeaders['X-XSRF-TOKEN'] = token;
+  // Prefer JS-visible token when present; native ModuleRuntime also sets from jar.
+  var token = readXsrfToken(pageRes);
+  if (token) apiHeaders['X-XSRF-TOKEN'] = token;
 
   var apiRes = await fetchv2(
     BASE + '/player/api',
     apiHeaders,
     'POST',
-    JSON.stringify({ episode_id: parseInt(idMatch[1], 10) })
+    JSON.stringify({ episode_id: parseInt(episodeId, 10) })
   );
 
   if (apiRes.status === 419) {
@@ -286,7 +302,7 @@ async function extractStreamUrl(episodeUrl) {
         url: domain + '/' + data.stream_url + '/' + q.file,
         headers: { Referer: BASE + '/', 'User-Agent': UA },
         quality: q.label,
-        title: data.title || titleFromSlug(slugFromUrl(episodeUrl))
+        title: data.title || titleFromSlug(slugFromUrl(cleanUrl))
       });
     });
   });
