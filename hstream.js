@@ -13,6 +13,9 @@
  *     <a href="https://hstream.moe/hentai/<slug>">. The card therefore carries
  *     the numeric episode id, so the episode page fetch is only needed for the
  *     CSRF cookie.
+ *   - Search filters on `/search?search=…` (not `?s=`). The latter returns an
+ *     unfiltered homepage-like card list and local filtering then fails for
+ *     titles that are not on that first page.
  *   - Each page is one episode; the series is the slug minus its trailing -N.
  *   - POST /player/api {episode_id} returns the stream descriptor, but Laravel
  *     rejects it with 419 unless X-XSRF-TOKEN carries the url-decoded
@@ -132,7 +135,8 @@ function matchesQuery(card, query) {
 }
 
 async function fetchCards(query) {
-  var url = BASE + '/search?s=' + encodeURIComponent(query || '');
+  // Site filters on `search=`, not `s=` (the latter returns an unfiltered card list).
+  var url = BASE + '/search?search=' + encodeURIComponent(query || '');
   var res = await fetchv2(url, headers(BASE + '/'), 'GET', null);
   if (!res.ok) throw new Error('hstream search failed: HTTP ' + res.status);
   return parseCards(await res.text());
