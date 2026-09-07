@@ -11,16 +11,17 @@
  * Site notes (verified against live responses):
  *   - Search cards are Livewire-rendered: <div wire:key="episode-<e_id>"> wraps
  *     <a href="https://hstream.moe/hentai/<slug>">. The card therefore carries
- *     the numeric episode id, so the episode page fetch is only needed for the
- *     CSRF cookie.
- *   - Search filters on `/search?search=…` (not `?s=`). The latter returns an
- *     unfiltered homepage-like card list and local filtering then fails for
- *     titles that are not on that first page.
+ *     the numeric episode id when Livewire markup is present.
+ *   - Search filters on `/search?search=…` (not `?s=`).
  *   - Each page is one episode; the series is the slug minus its trailing -N.
- *   - POST /player/api {episode_id} returns the stream descriptor, but Laravel
- *     rejects it with 419 unless X-XSRF-TOKEN carries the url-decoded
- *     XSRF-TOKEN cookie from a prior GET on the same session.
- *   - Streams are progressive MP4, not HLS.
+ *   - Related-episode links on a working page list the full series, but some
+ *     sibling pages soft-404 without `e_id` even though the CDN still serves
+ *     E0N. When that happens we resolve a working sibling via /player/api and
+ *     rewrite `…/E01` → `…/E0N` (CDN paths are confirmed with Range probes).
+ *   - POST /player/api {episode_id} needs X-XSRF-TOKEN from the session jar.
+ *   - Streams are progressive MP4; English subs are sidecar `eng.vtt` on the CDN.
+ *   - Multiple CDN hostnames are mirrors of the same file — return one primary
+ *     (+ one labeled mirror) instead of every domain.
  */
 
 var BASE = 'https://hstream.moe';
@@ -83,6 +84,20 @@ function absolute(url) {
   return BASE + (url.charAt(0) === '/' ? '' : '/') + url;
 }
 
+function episodeFolder(n) {
+  var num = Math.max(1, parseInt(n, 10) || 1);
+  return 'E' + (num < 10 ? '0' + num : String(num));
+}
+
+function rewriteStreamPath(streamUrl, epNum) {
+  return String(streamUrl).replace(/E\d+$/i, episodeFolder(epNum));
+}
+
+function withEid(url, episodeId) {
+  if (!episodeId || String(url).indexOf('eid=') >= 0) return url;
+  return url + (url.indexOf('?') >= 0 ? '&' : '?') + 'eid=' + episodeId;
+}
+
 /**
  * Search is Livewire-backed and has been observed returning the full card list
  * regardless of ?s=, so every card is parsed and filtered locally. That stays
@@ -102,8 +117,6 @@ function parseCards(html) {
     var slug = slugFromUrl(href);
     if (!slug) continue;
 
-    // Card markup for title/poster was not inspectable, so read whatever the
-    // <img> exposes and fall back to the slug.
     var srcMatch = chunk.match(/<img[^>]+src="([^"]+)"/);
     var altMatch = chunk.match(/<img[^>]+alt="([^"]+)"/);
 
@@ -117,6 +130,34 @@ function parseCards(html) {
   }
 
   return out;
+}
+
+/** Related-episode / series nav links on a working episode page. */
+function parseSiblingLinks(html, base) {
+  var out = [];
+  var seen = {};
+  var re = /href="(https:\/\/hstream\.moe\/hentai\/([^"?#]+))"/g;
+  var match;
+  while ((match = re.exec(html)) !== null) {
+    var href = match[1];
+    var slug = match[2];
+    if (seriesBase(slug) !== base) continue;
+    var num = episodeNumber(slug);
+    if (seen[num]) continue;
+    seen[num] = true;
+    out.push({ url: href, number: num, slug: slug });
+  }
+  return out.sort(function (a, b) {
+    return a.number - b.number;
+  });
+}
+
+function readEidFromHtml(html) {
+  var idMatch =
+    html.match(/id="e_id"[^>]*value="(\d+)"/) ||
+    html.match(/value="(\d+)"[^>]*id="e_id"/) ||
+    html.match(/name="e_id"[^>]*value="(\d+)"/);
+  return idMatch ? idMatch[1] : '';
 }
 
 function matchesQuery(card, query) {
@@ -135,7 +176,6 @@ function matchesQuery(card, query) {
 }
 
 async function fetchCards(query) {
-  // Site filters on `search=`, not `s=` (the latter returns an unfiltered card list).
   var url = BASE + '/search?search=' + encodeURIComponent(query || '');
   var res = await fetchv2(url, headers(BASE + '/'), 'GET', null);
   if (!res.ok) throw new Error('hstream search failed: HTTP ' + res.status);
@@ -165,8 +205,7 @@ async function searchResults(query) {
       return {
         title: titleFromSlug(card.slug),
         image: card.image,
-        // Carry Livewire episode id so extractStreamUrl can skip brittle HTML parsing.
-        url: card.url + (card.url.indexOf('?') >= 0 ? '&' : '?') + 'eid=' + card.episodeId
+        url: withEid(card.url, card.episodeId)
       };
     });
   }
@@ -186,13 +225,16 @@ async function searchResults(query) {
     try {
       var res = await fetchv2(probe, headers(BASE + '/'), 'GET', null);
       if (res.ok) {
-        return [
-          {
-            title: titleFromSlug(slugFromUrl(probe) || slug + '-1'),
-            image: '',
-            url: probe
-          }
-        ];
+        var html = await res.text();
+        if (readEidFromHtml(html)) {
+          return [
+            {
+              title: titleFromSlug(slugFromUrl(probe) || slug + '-1'),
+              image: '',
+              url: probe
+            }
+          ];
+        }
       }
     } catch (e) {
       // try next
@@ -202,29 +244,74 @@ async function searchResults(query) {
 }
 
 async function extractEpisodes(showUrl) {
-  var base = seriesBase(slugFromUrl(showUrl));
+  var slug = slugFromUrl(showUrl);
+  var base = seriesBase(slug);
   if (!base) return [];
 
-  var siblings = (await fetchCards(base.replace(/-/g, ' '))).filter(function (c) {
-    return seriesBase(c.slug) === base;
-  });
+  var byNumber = {};
 
-  if (!siblings.length) {
-    // Search came back empty; the requested page is still a valid episode.
-    return [{ url: showUrl, number: episodeNumber(slugFromUrl(showUrl)) }];
+  // Prefer Livewire search cards when present (carry real e_id).
+  try {
+    var siblings = (await fetchCards(base.replace(/-/g, ' '))).filter(function (c) {
+      return seriesBase(c.slug) === base;
+    });
+    siblings.forEach(function (card) {
+      byNumber[episodeNumber(card.slug)] = {
+        url: withEid(card.url, card.episodeId),
+        number: episodeNumber(card.slug)
+      };
+    });
+  } catch (e) {
+    // fall through to page scrape
   }
 
-  return siblings
-    .map(function (card) {
-      var url = card.url;
-      if (card.episodeId && url.indexOf('eid=') < 0) {
-        url = url + (url.indexOf('?') >= 0 ? '&' : '?') + 'eid=' + card.episodeId;
+  // Always scrape related links from a working episode page — Livewire search
+  // often returns zero cards for niche titles.
+  var seedUrls = [];
+  if (showUrl) seedUrls.push(String(showUrl).replace(/[?&]eid=\d+/g, '').replace(/\?$/, ''));
+  seedUrls.push(BASE + '/hentai/' + base + '-1');
+  seedUrls.push(BASE + '/hentai/' + base);
+
+  for (var i = 0; i < seedUrls.length; i++) {
+    try {
+      var res = await fetchv2(seedUrls[i], headers(BASE + '/search'), 'GET', null);
+      if (!res.ok) continue;
+      var html = await res.text();
+      var eid = readEidFromHtml(html);
+      var seedSlug = slugFromUrl(seedUrls[i]) || slug;
+      var seedNum = episodeNumber(seedSlug);
+      if (eid) {
+        byNumber[seedNum] = {
+          url: withEid(BASE + '/hentai/' + seedSlug, eid),
+          number: seedNum
+        };
       }
-      return { url: url, number: episodeNumber(card.slug) };
+      parseSiblingLinks(html, base).forEach(function (sib) {
+        if (!byNumber[sib.number]) {
+          byNumber[sib.number] = { url: sib.url, number: sib.number };
+        }
+      });
+      if (Object.keys(byNumber).length > 1 || eid) break;
+    } catch (e) {
+      // try next seed
+    }
+  }
+
+  var nums = Object.keys(byNumber)
+    .map(function (n) {
+      return parseInt(n, 10);
     })
     .sort(function (a, b) {
-      return a.number - b.number;
+      return a - b;
     });
+
+  if (!nums.length) {
+    return [{ url: showUrl, number: episodeNumber(slug) }];
+  }
+
+  return nums.map(function (n) {
+    return byNumber[n];
+  });
 }
 
 /**
@@ -244,37 +331,13 @@ function readXsrfToken(res) {
   }
 }
 
-async function extractStreamUrl(episodeUrl) {
-  var eidFromQuery = (String(episodeUrl).match(/[?&]eid=(\d+)/) || [])[1] || '';
-  var cleanUrl = String(episodeUrl).replace(/[?&]eid=\d+/g, '').replace(/\?$/, '');
-
-  // Warm Laravel session + XSRF-TOKEN cookie (native bridge injects X-XSRF-TOKEN on POST).
-  var pageRes = await fetchv2(cleanUrl, headers(BASE + '/search'), 'GET', null);
-  if (!pageRes.ok) throw new Error('hstream episode failed: HTTP ' + pageRes.status);
-
-  var html = await pageRes.text();
-  var idMatch =
-    html.match(/id="e_id"[^>]*value="(\d+)"/) ||
-    html.match(/value="(\d+)"[^>]*id="e_id"/) ||
-    html.match(/name="e_id"[^>]*value="(\d+)"/) ||
-    html.match(/episode[_-]?id["'\s:=]+(\d+)/i);
-
-  var episodeId = eidFromQuery || (idMatch ? idMatch[1] : '');
-  if (!episodeId) {
-    throw new Error(
-      'hstream: e_id not found on ' +
-        cleanUrl +
-        ' (page may be missing / geo-blocked; try Overflow)'
-    );
-  }
-
-  var apiHeaders = headers(cleanUrl);
+async function playerApi(episodeId, refererUrl, pageRes) {
+  var apiHeaders = headers(refererUrl);
   apiHeaders['X-Requested-With'] = 'XMLHttpRequest';
   apiHeaders['Origin'] = BASE;
   apiHeaders['Content-Type'] = 'application/json';
   apiHeaders['Accept'] = 'application/json';
-  // Prefer JS-visible token when present; native ModuleRuntime also sets from jar.
-  var token = readXsrfToken(pageRes);
+  var token = pageRes ? readXsrfToken(pageRes) : '';
   if (token) apiHeaders['X-XSRF-TOKEN'] = token;
 
   var apiRes = await fetchv2(
@@ -294,23 +357,107 @@ async function extractStreamUrl(episodeUrl) {
   if (!domains.length || !data.stream_url) {
     throw new Error('hstream: player/api returned no stream domains');
   }
+  return { data: data, domains: domains };
+}
+
+/** Find any working sibling page (has e_id) so we can rewrite CDN paths. */
+async function resolveWorkingSibling(base, preferUrl) {
+  var tries = [];
+  if (preferUrl) tries.push(preferUrl);
+  tries.push(BASE + '/hentai/' + base + '-1');
+  tries.push(BASE + '/hentai/' + base + '-4');
+  tries.push(BASE + '/hentai/' + base);
+
+  for (var i = 0; i < tries.length; i++) {
+    var url = String(tries[i]).replace(/[?&]eid=\d+/g, '').replace(/\?$/, '');
+    try {
+      var res = await fetchv2(url, headers(BASE + '/search'), 'GET', null);
+      if (!res.ok) continue;
+      var html = await res.text();
+      var eid = readEidFromHtml(html);
+      if (!eid) continue;
+      return { url: url, eid: eid, pageRes: res, html: html };
+    } catch (e) {
+      // next
+    }
+  }
+  return null;
+}
+
+function buildStreams(domains, streamPath, title) {
+  // One primary + one mirror — same file on every CDN host.
+  var hosts = [];
+  if (domains[0]) hosts.push(domains[0]);
+  if (domains[1] && domains[1] !== domains[0]) hosts.push(domains[1]);
 
   var streams = [];
-  domains.forEach(function (domain) {
+  hosts.forEach(function (domain, idx) {
     QUALITIES.forEach(function (q) {
       streams.push({
-        url: domain + '/' + data.stream_url + '/' + q.file,
+        url: domain + '/' + streamPath + '/' + q.file,
         headers: { Referer: BASE + '/', 'User-Agent': UA },
         quality: q.label,
-        title: data.title || titleFromSlug(slugFromUrl(cleanUrl))
+        title: idx === 0 ? title : title + ' (mirror)'
       });
     });
   });
+  return streams;
+}
 
-  return {
-    streams: streams,
-    subtitle: domains[0] + '/' + data.stream_url + '/eng.vtt'
-  };
+async function extractStreamUrl(episodeUrl) {
+  var eidFromQuery = (String(episodeUrl).match(/[?&]eid=(\d+)/) || [])[1] || '';
+  var cleanUrl = String(episodeUrl).replace(/[?&]eid=\d+/g, '').replace(/\?$/, '');
+  var slug = slugFromUrl(cleanUrl);
+  var base = seriesBase(slug);
+  var wantedEp = episodeNumber(slug);
+
+  var pageRes = await fetchv2(cleanUrl, headers(BASE + '/search'), 'GET', null);
+  if (!pageRes.ok) throw new Error('hstream episode failed: HTTP ' + pageRes.status);
+
+  var html = await pageRes.text();
+  var episodeId = eidFromQuery || readEidFromHtml(html);
+
+  var data;
+  var domains;
+
+  if (episodeId) {
+    var direct = await playerApi(episodeId, cleanUrl, pageRes);
+    data = direct.data;
+    domains = direct.domains;
+    // If API title/path episode disagrees with slug number, still trust API for
+    // this e_id — but when we used a soft-404 page we won't have e_id.
+  } else {
+    // Soft-404 sibling page: resolve a working episode and rewrite CDN E0N.
+    var sib = await resolveWorkingSibling(base, BASE + '/hentai/' + base + '-1');
+    if (!sib) {
+      throw new Error(
+        'hstream: e_id not found on ' +
+          cleanUrl +
+          ' and no working sibling (page may be missing / geo-blocked)'
+      );
+    }
+    var via = await playerApi(sib.eid, sib.url, sib.pageRes);
+    data = via.data;
+    domains = via.domains;
+    data = Object.assign({}, data, {
+      stream_url: rewriteStreamPath(data.stream_url, wantedEp)
+    });
+  }
+
+  // If we resolved via the correct e_id but CDN path still points at another
+  // episode folder (site quirk), force the slug episode number.
+  var pathEp = (String(data.stream_url).match(/E(\d+)$/i) || [])[1];
+  if (pathEp && parseInt(pathEp, 10) !== wantedEp) {
+    data = Object.assign({}, data, {
+      stream_url: rewriteStreamPath(data.stream_url, wantedEp)
+    });
+  }
+
+  var title = data.title || titleFromSlug(slug) || titleFromSlug(base);
+  var streams = buildStreams(domains, data.stream_url, title);
+  var subtitle = domains[0] + '/' + data.stream_url + '/eng.vtt';
+
+  return { streams: streams, subtitle: subtitle };
 }
 
 // Exported for the offline harness; ignored by the JSContext runtime.
