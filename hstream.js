@@ -225,6 +225,8 @@ async function extractEpisodes(showUrl) {
 /**
  * Swift joins repeated Set-Cookie headers into one comma-separated string, so
  * the token is matched without crossing a cookie boundary.
+ * Native ModuleRuntime synthesizes set-cookie from the session cookie jar
+ * because iOS strips Set-Cookie from HTTPURLResponse.allHeaderFields.
  */
 function readXsrfToken(res) {
   var raw = res.headers.get('set-cookie') || '';
@@ -246,21 +248,28 @@ async function extractStreamUrl(episodeUrl) {
   if (!idMatch) throw new Error('hstream: e_id not found on ' + episodeUrl);
 
   var token = readXsrfToken(pageRes);
+  if (!token) {
+    throw new Error(
+      'hstream: missing XSRF-TOKEN after episode GET (cookie jar / set-cookie bridge)'
+    );
+  }
+
   var apiHeaders = headers(episodeUrl);
   apiHeaders['X-Requested-With'] = 'XMLHttpRequest';
   apiHeaders['Origin'] = BASE;
   apiHeaders['Content-Type'] = 'application/json';
-  if (token) apiHeaders['X-XSRF-TOKEN'] = token;
+  apiHeaders['Accept'] = 'application/json';
+  apiHeaders['X-XSRF-TOKEN'] = token;
 
   var apiRes = await fetchv2(
     BASE + '/player/api',
     apiHeaders,
     'POST',
-    JSON.stringify({ episode_id: idMatch[1] })
+    JSON.stringify({ episode_id: parseInt(idMatch[1], 10) })
   );
 
   if (apiRes.status === 419) {
-    throw new Error('hstream: CSRF rejected - XSRF-TOKEN cookie did not survive the session');
+    throw new Error('hstream: CSRF rejected (419) — X-XSRF-TOKEN mismatch');
   }
   if (!apiRes.ok) throw new Error('hstream player/api failed: HTTP ' + apiRes.status);
 
