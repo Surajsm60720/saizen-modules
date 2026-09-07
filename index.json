@@ -1,0 +1,13 @@
+[
+  {
+    "id": "hstream",
+    "sourceName": "Hstream",
+    "scriptUrl": "https://raw.githubusercontent.com/Surajsm60720/saizen-modules/main/hstream.js",
+    "baseUrl": "https://hstream.moe",
+    "streamType": "MP4",
+    "status": "active",
+    "type": "anime",
+    "quality": "720p",
+    "nsfw": true
+  }
+]
