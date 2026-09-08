@@ -24,7 +24,7 @@
  *     (+ one labeled mirror) instead of every domain.
  */
 
-// saizen-adult-catalog-v5
+// saizen-adult-catalog-v6
 var BASE = 'https://hstream.moe';
 var UA =
   'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 ' +

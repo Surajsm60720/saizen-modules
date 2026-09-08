@@ -13,7 +13,7 @@
  *     returns HLS playlist (octopusmanifest.org) + optional eng sidecar under s/en.vtt
  */
 
-// saizen-adult-catalog-v5
+// saizen-adult-catalog-v6
 var BASE = 'https://hentaihaven.com';
 var UA =
   'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 ' +

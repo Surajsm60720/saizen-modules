@@ -14,7 +14,7 @@
  *   - Optional timeline VTT on filegasm may be chapter markers, not dialogue.
  */
 
-// saizen-adult-catalog-v5
+// saizen-adult-catalog-v6
 var BASE = 'https://haho.moe';
 var UA =
   'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 ' +
@@ -265,21 +265,21 @@ function coverFromSeriesHtml(html) {
 }
 
 async function backfillCovers(cards, limit) {
+  // Sequential — parallel series-page fetches trip haho.moe rate limits / cookie races.
   var need = cards.filter(function (c) {
     return c && c.url && !c.image;
-  }).slice(0, typeof limit === 'number' ? limit : 12);
-  await Promise.all(
-    need.map(async function (c) {
-      try {
-        var res = await fetchv2(c.url, headers(BASE + '/'), 'GET', null);
-        if (!res.ok) return;
-        var img = coverFromSeriesHtml(await res.text());
-        if (img) c.image = absolute(img);
-      } catch (e) {
-        /* keep empty image */
-      }
-    })
-  );
+  }).slice(0, typeof limit === 'number' ? limit : 4);
+  for (var i = 0; i < need.length; i++) {
+    var c = need[i];
+    try {
+      var res = await fetchv2(c.url, headers(BASE + '/'), 'GET', null);
+      if (!res.ok) continue;
+      var img = coverFromSeriesHtml(await res.text());
+      if (img) c.image = absolute(img);
+    } catch (e) {
+      /* keep empty image */
+    }
+  }
   return cards;
 }
 
@@ -374,7 +374,7 @@ async function searchResults(query) {
           topCards = parseTopSection(homeHtml, 'top-total');
         }
         if (topCards.length) {
-          await backfillCovers(topCards, 12);
+          await backfillCovers(topCards, 4);
           return topCards;
         }
       }
@@ -411,7 +411,7 @@ async function searchResults(query) {
       return matchesQuery(c, query);
     });
   }
-  await backfillCovers(cards, 12);
+  await backfillCovers(cards, 4);
   return cards;
 }
 
