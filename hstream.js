@@ -54,6 +54,133 @@ function headers(referer) {
   };
 }
 
+/** Live hstream.moe search modal tags[] values (CSAM + tech chips omitted). */
+var GENRES = [
+  ['3D', '3d'],
+  ['Ahegao', 'ahegao'],
+  ['Anal', 'anal'],
+  ['BDSM', 'bdsm'],
+  ['Bestiality', 'bestiality'],
+  ['Big Boobs', 'big-boobs'],
+  ['Blow Job', 'blow-job'],
+  ['Bondage', 'bondage'],
+  ['Boob Job', 'boob-job'],
+  ['Censored', 'censored'],
+  ['Comedy', 'comedy'],
+  ['Cosplay', 'cosplay'],
+  ['Creampie', 'creampie'],
+  ['Dark Skin', 'dark-skin'],
+  ['Elf', 'elf'],
+  ['Facial', 'facial'],
+  ['Fantasy', 'fantasy'],
+  ['Filmed', 'filmed'],
+  ['Foot Job', 'foot-job'],
+  ['Futanari', 'futanari'],
+  ['Gangbang', 'gangbang'],
+  ['Glasses', 'glasses'],
+  ['Gore', 'gore'],
+  ['Hand Job', 'hand-job'],
+  ['Harem', 'harem'],
+  ['Horror', 'horror'],
+  ['Incest', 'incest'],
+  ['Inflation', 'inflation'],
+  ['Lactation', 'lactation'],
+  ['Maid', 'maid'],
+  ['Masturbation', 'masturbation'],
+  ['MILF', 'milf'],
+  ['Mind Break', 'mind-break'],
+  ['Mind Control', 'mind-control'],
+  ['Monster', 'monster'],
+  ['Nekomimi', 'nekomimi'],
+  ['NTR', 'ntr'],
+  ['Nurse', 'nurse'],
+  ['Orc', 'orc'],
+  ['Orgy', 'orgy'],
+  ['POV', 'pov'],
+  ['Pregnant', 'pregnant'],
+  ['Public Sex', 'public-sex'],
+  ['Rape', 'rape'],
+  ['Reverse Rape', 'reverse-rape'],
+  ['Rimjob', 'rimjob'],
+  ['Scat', 'scat'],
+  ['School Girl', 'school-girl'],
+  ['Small Boobs', 'small-boobs'],
+  ['Succubus', 'succubus'],
+  ['Swim Suit', 'swim-suit'],
+  ['Teacher', 'teacher'],
+  ['Tentacle', 'tentacle'],
+  ['Threesome', 'threesome'],
+  ['Toys', 'toys'],
+  ['Trap', 'trap'],
+  ['Tsundere', 'tsundere'],
+  ['Ugly Bastard', 'ugly-bastard'],
+  ['Uncensored', 'uncensored'],
+  ['Vanilla', 'vanilla'],
+  ['Virgin', 'virgin'],
+  ['X-Ray', 'x-ray'],
+  ['Yuri', 'yuri']
+];
+
+function genreSlugMap() {
+  var map = {};
+  GENRES.forEach(function (pair) {
+    map[String(pair[0]).toLowerCase()] = pair[1];
+    map[String(pair[1]).toLowerCase()] = pair[1];
+  });
+  // aliases from other sources
+  map['schoolgirl'] = 'school-girl';
+  map['school girls'] = 'school-girl';
+  map['swimsuit'] = 'swim-suit';
+  map['tentacles'] = 'tentacle';
+  map['blowjob'] = 'blow-job';
+  map['footjob'] = 'foot-job';
+  map['handjob'] = 'hand-job';
+  map['netorare'] = 'ntr';
+  return map;
+}
+
+function parseGenreSlugs(query) {
+  var q = String(query || '').trim();
+  if (!q) return [];
+  var map = genreSlugMap();
+  var slugs = [];
+  var seen = {};
+
+  function add(name) {
+    var key = String(name || '').trim().toLowerCase().replace(/^genre:/i, '');
+    if (!key) return;
+    var slug = map[key];
+    if (!slug || seen[slug]) return;
+    seen[slug] = true;
+    slugs.push(slug);
+  }
+
+  if (q.indexOf(' | ') >= 0) {
+    q.split(' | ').forEach(add);
+    return slugs;
+  }
+  if (map[q.toLowerCase()]) {
+    add(q);
+    return slugs;
+  }
+  // genre:Name tokens (Name may include spaces until next genre: or end)
+  var re = /genre:([^\|]+?)(?=\s+genre:|$)/gi;
+  var m;
+  var found = false;
+  while ((m = re.exec(q)) !== null) {
+    found = true;
+    add(m[1]);
+  }
+  return found ? slugs : [];
+}
+
+async function getGenres() {
+  return GENRES.map(function (pair) {
+    return { id: pair[1], name: pair[0] };
+  });
+}
+
+
 function seriesBase(slug) {
   return String(slug).replace(/-(\d+)$/, '');
 }
@@ -175,20 +302,36 @@ function matchesQuery(card, query) {
   });
 }
 
-async function fetchCards(query) {
-  var url = BASE + '/search?search=' + encodeURIComponent(query || '');
+function parseOrderQuery(query) {
+  var m = String(query || '')
+    .trim()
+    .match(/^order:([a-z0-9\-]+)$/i);
+  return m ? m[1].toLowerCase() : '';
+}
+
+async function fetchCards(query, genreSlugs, order) {
+  var url;
+  if (order) {
+    url = BASE + '/search?order=' + encodeURIComponent(order);
+  } else if (genreSlugs && genreSlugs.length) {
+    url =
+      BASE +
+      '/search?' +
+      genreSlugs
+        .map(function (s) {
+          return 'tags[]=' + encodeURIComponent(s);
+        })
+        .join('&');
+  } else {
+    url = BASE + '/search?search=' + encodeURIComponent(query || '');
+  }
   var res = await fetchv2(url, headers(BASE + '/'), 'GET', null);
   if (!res.ok) throw new Error('hstream search failed: HTTP ' + res.status);
   return parseCards(await res.text());
 }
 
-async function searchResults(query) {
-  var cards = (await fetchCards(query)).filter(function (c) {
-    return matchesQuery(c, query);
-  });
 
-  // Collapse per-episode cards into one entry per series, keeping the lowest
-  // episode as the entry point.
+function collapseCards(cards) {
   var bySeries = {};
   cards.forEach(function (card) {
     var key = seriesBase(card.slug);
@@ -197,17 +340,38 @@ async function searchResults(query) {
       bySeries[key] = card;
     }
   });
+  return Object.keys(bySeries).map(function (key) {
+    var card = bySeries[key];
+    return {
+      title: titleFromSlug(card.slug),
+      image: card.image,
+      url: withEid(card.url, card.episodeId)
+    };
+  });
+}
 
-  var keys = Object.keys(bySeries);
-  if (keys.length) {
-    return keys.map(function (key) {
-      var card = bySeries[key];
-      return {
-        title: titleFromSlug(card.slug),
-        image: card.image,
-        url: withEid(card.url, card.episodeId)
-      };
+/** Optional — web usually builds rails via railQueries in one session. */
+async function getHomeSections() {
+  return [];
+}
+
+async function searchResults(query) {
+  var order = parseOrderQuery(query);
+  if (order) {
+    return collapseCards(await fetchCards('', [], order)).slice(0, 24);
+  }
+  var genreSlugs = parseGenreSlugs(query);
+  var cards = await fetchCards(query, genreSlugs, '');
+  // Genre / tag browse: keep all cards. Free-text: filter locally.
+  if (!genreSlugs.length) {
+    cards = cards.filter(function (c) {
+      return matchesQuery(c, query);
     });
+  }
+
+  var collapsed = collapseCards(cards);
+  if (collapsed.length) {
+    return collapsed;
   }
 
   // Fallback: many adult titles are reachable as /hentai/<slug>-1 even when the
@@ -466,6 +630,8 @@ if (typeof module !== 'undefined' && module.exports) {
     searchResults: searchResults,
     extractEpisodes: extractEpisodes,
     extractStreamUrl: extractStreamUrl,
+    getGenres: getGenres,
+    getHomeSections: getHomeSections,
     QUALITY_PROBES: QUALITY_PROBES
   };
 }

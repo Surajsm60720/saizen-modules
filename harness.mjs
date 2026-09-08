@@ -99,7 +99,9 @@ function loadModule(path) {
     RegExp,
     Error,
     parseInt,
-    parseFloat
+    parseFloat,
+    atob: (s) => Buffer.from(String(s), 'base64').toString('binary'),
+    btoa: (s) => Buffer.from(String(s), 'binary').toString('base64')
   };
   sandbox.exports = sandbox.module.exports;
   createContext(sandbox);

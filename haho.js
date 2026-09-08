@@ -25,6 +25,171 @@ function headers(referer) {
   };
 }
 
+/** haho.moe genre: operator tags (subset of /genre index, adult-relevant). */
+var GENRES = [
+  ['Ahegao', 'ahegao'],
+  ['Anal', 'anal'],
+  ['Anal fingering', 'anal fingering'],
+  ['Anal pissing', 'anal pissing'],
+  ['Attempted rape', 'attempted rape'],
+  ['Aunt-nephew incest', 'aunt-nephew incest'],
+  ['BDSM', 'BDSM'],
+  ['Bondage', 'bondage'],
+  ['Brother-sister incest', 'brother-sister incest'],
+  ['Bukkake', 'bukkake'],
+  ['Comedy', 'comedy'],
+  ['Contemporary fantasy', 'contemporary fantasy'],
+  ['Cosplaying', 'cosplaying'],
+  ['Creampie', 'creampie'],
+  ['Dark elf', 'dark elf'],
+  ['Dark fantasy', 'dark fantasy'],
+  ['Dark-skinned girl', 'dark-skinned girl'],
+  ['Deflowering', 'deflowering'],
+  ['Elf', 'elf'],
+  ['Enjoyable rape', 'enjoyable rape'],
+  ['Exhibitionism', 'exhibitionism'],
+  ['Fantasy', 'fantasy'],
+  ['Father-daughter incest', 'father-daughter incest'],
+  ['Female rapes female', 'female rapes female'],
+  ['Female teacher', 'female teacher'],
+  ['Femdom', 'femdom'],
+  ['FFM threesome', 'FFM threesome'],
+  ['Footjob', 'footjob'],
+  ['Futa x female', 'futa x female'],
+  ['Futa x futa', 'futa x futa'],
+  ['Futa x male', 'futa x male'],
+  ['Futanari', 'futanari'],
+  ['Gang bang', 'gang bang'],
+  ['Gang rape', 'gang rape'],
+  ['Girl rapes girl', 'girl rapes girl'],
+  ['Group sex', 'group sex'],
+  ['Handjob', 'handjob'],
+  ['Harem', 'harem'],
+  ['High fantasy', 'high fantasy'],
+  ['High school', 'high school'],
+  ['Horror', 'horror'],
+  ['Impregnation', 'impregnation'],
+  ['Impregnation with larvae', 'impregnation with larvae'],
+  ['Incest', 'incest'],
+  ['Inter-dimensional schoolgirl', 'inter-dimensional schoolgirl'],
+  ['Lactation', 'lactation'],
+  ['Maid', 'maid'],
+  ['Male rape victim', 'male rape victim'],
+  ['Master-slave relation', 'master-slave relation'],
+  ['Masturbation', 'masturbation'],
+  ['Mechanical tentacle', 'mechanical tentacle'],
+  ['Mermaid', 'mermaid'],
+  ['Mind fuck', 'mind fuck'],
+  ['MMF threesome', 'MMF threesome'],
+  ['MMM threesome', 'MMM threesome'],
+  ['Mother-daughter incest', 'mother-daughter incest'],
+  ['Mother-son incest', 'mother-son incest'],
+  ['Netorare', 'netorare'],
+  ['Netori', 'netori'],
+  ['Nurse', 'nurse'],
+  ['Nurse office', 'nurse office'],
+  ['Oral', 'oral'],
+  ['Orgy', 'orgy'],
+  ['Pregnant sex', 'pregnant sex'],
+  ['Public sex', 'public sex'],
+  ['Rape', 'rape'],
+  ['Reverse harem', 'reverse harem'],
+  ['Reverse trap', 'reverse trap'],
+  ['Rimming', 'rimming'],
+  ['Scat', 'scat'],
+  ['Self-parody', 'self-parody'],
+  ['Sex toys', 'sex toys'],
+  ['Shibari', 'shibari'],
+  ['Sister-sister incest', 'sister-sister incest'],
+  ['Slavery', 'slavery'],
+  ['Squirting', 'squirting'],
+  ['Strap-on dildo', 'strap-on dildo'],
+  ['Strapon', 'strapon'],
+  ['Strappado', 'strappado'],
+  ['Strappado bondage', 'strappado bondage'],
+  ['Succubus', 'succubus'],
+  ['Suspension bondage', 'suspension bondage'],
+  ['Teacher x student', 'teacher x student'],
+  ['Tentacle', 'tentacle'],
+  ['Threesome', 'threesome'],
+  ['Threesome with sisters', 'threesome with sisters'],
+  ['Trap', 'trap'],
+  ['Trapped', 'trapped'],
+  ['Twincest', 'twincest'],
+  ['Uncle-niece incest', 'uncle-niece incest'],
+  ['Unintentional comedy', 'unintentional comedy'],
+  ['Vanilla Series', 'Vanilla Series'],
+  ['Voyeurism', 'voyeurism'],
+  ['Water sex', 'water sex'],
+  ['Whip', 'whip'],
+  ['Whipping', 'whipping'],
+  ['Window fuck', 'window fuck'],
+  ['Yaoi', 'yaoi'],
+  ['Yuri', 'yuri']
+]
+
+function genreTagMap() {
+  var map = {};
+  GENRES.forEach(function (pair) {
+    map[String(pair[0]).toLowerCase()] = pair[1];
+    map[String(pair[1]).toLowerCase()] = pair[1];
+  });
+  map['school girl'] = 'high school';
+  map['schoolgirl'] = 'high school';
+  map['school girls'] = 'high school';
+  map['uncensored'] = map['uncensored'] || 'Vanilla Series';
+  map['vanilla'] = 'Vanilla Series';
+  map['milf'] = map['milf'] || 'female teacher';
+  map['ntr'] = 'netorare';
+  map['pregnant'] = 'pregnant sex';
+  map['swim suit'] = map['swimsuit'] || 'swimsuit';
+  map['blow job'] = map['blowjob'] || 'blowjob';
+  map['foot job'] = map['footjob'] || 'footjob';
+  map['hand job'] = map['handjob'] || 'handjob';
+  map['mind break'] = 'mind fuck';
+  map['rimjob'] = 'rimming';
+  return map;
+}
+
+function parseGenreTags(query) {
+  var q = String(query || '').trim();
+  if (!q) return [];
+  var map = genreTagMap();
+  var tags = [];
+  var seen = {};
+  function add(name) {
+    var key = String(name || '').trim().toLowerCase().replace(/^genre:/i, '');
+    if (!key) return;
+    var tag = map[key];
+    if (!tag || seen[tag]) return;
+    seen[tag] = true;
+    tags.push(tag);
+  }
+  if (q.indexOf(' | ') >= 0) {
+    q.split(' | ').forEach(add);
+    return tags;
+  }
+  if (map[q.toLowerCase()]) {
+    add(q);
+    return tags;
+  }
+  var re = /genre:([^\|]+?)(?=\s+genre:|$)/gi;
+  var m;
+  var found = false;
+  while ((m = re.exec(q)) !== null) {
+    found = true;
+    add(m[1]);
+  }
+  return found ? tags : [];
+}
+
+async function getGenres() {
+  return GENRES.map(function (pair) {
+    return { id: pair[1], name: pair[0] };
+  });
+}
+
+
 function absolute(url) {
   if (!url) return '';
   if (/^https?:\/\//i.test(url)) return url;
@@ -74,13 +239,40 @@ function matchesQuery(card, query) {
   });
 }
 
+function parseOrderQuery(query) {
+  var m = String(query || '')
+    .trim()
+    .match(/^order:([a-z0-9\-]+)$/i);
+  return m ? m[1].toLowerCase() : '';
+}
+
 async function searchResults(query) {
-  var url = BASE + '/anime?q=' + encodeURIComponent(query || '');
+  var order = parseOrderQuery(query);
+  var genreTags = parseGenreTags(query);
+  var q = String(query || '').trim();
+  var filterTitles = true;
+  if (order) {
+    // Newest-ish listing
+    q = '';
+    filterTitles = false;
+  } else if (genreTags.length) {
+    q = genreTags
+      .map(function (t) {
+        return 'genre:' + t;
+      })
+      .join(' ');
+    filterTitles = false;
+  }
+  var url = BASE + '/anime?q=' + encodeURIComponent(q);
   var res = await fetchv2(url, headers(BASE + '/'), 'GET', null);
   if (!res.ok) throw new Error('haho search failed: HTTP ' + res.status);
-  return parseSearchCards(await res.text()).filter(function (c) {
-    return matchesQuery(c, query);
-  });
+  var cards = parseSearchCards(await res.text());
+  if (filterTitles) {
+    cards = cards.filter(function (c) {
+      return matchesQuery(c, query);
+    });
+  }
+  return cards;
 }
 
 async function extractEpisodes(showUrl) {
@@ -158,6 +350,7 @@ if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     searchResults: searchResults,
     extractEpisodes: extractEpisodes,
-    extractStreamUrl: extractStreamUrl
+    extractStreamUrl: extractStreamUrl,
+    getGenres: getGenres
   };
 }

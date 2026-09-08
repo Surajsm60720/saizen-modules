@@ -25,6 +25,191 @@ function headers(referer) {
   };
 }
 
+/** hentaimama.io /genre/<slug>/ labels → slugs (from /genres-filter/). */
+var GENRES = [
+  ['3D', '3d'],
+  ['Action', 'action'],
+  ['Adventure', 'adventure'],
+  ['Ahegao', 'ahegao'],
+  ['Anal', 'anal'],
+  ['Animal Girls', 'animal-ears'],
+  ['BDSM', 'bdsm'],
+  ['Blackmail', 'blackmail'],
+  ['Blonde', 'blonde'],
+  ['Blowjob', 'blowjob'],
+  ['Bondage', 'bondage'],
+  ['Brainwashed', 'brainwashed'],
+  ['Cat Girl', 'cat-girl'],
+  ['Comedy', 'comedy'],
+  ['Condom', 'condom'],
+  ['Cosplay', 'cosplay'],
+  ['Creampie', 'creampie'],
+  ['Cross-dressing', 'cross-dressing'],
+  ['Cute & Funny', 'cutefunny'],
+  ['Dark Skin', 'dark-skin'],
+  ['DeepThroat', 'deepthroat'],
+  ['Demons', 'demons'],
+  ['Doctor', 'doctor'],
+  ['Domination', 'domination'],
+  ['Double Penetration', 'double-penatration'],
+  ['Drama', 'drama'],
+  ['Dubbed', 'dubbed'],
+  ['Ecchi', 'ecchi'],
+  ['Elf', 'elf'],
+  ['Facesitting', 'facesitting'],
+  ['Facial', 'facial'],
+  ['Family', 'family'],
+  ['Fantasy', 'fantasy'],
+  ['Female Doctor', 'female-doctor'],
+  ['Female Teacher', 'female-teacher'],
+  ['Femdom', 'femdom'],
+  ['Filmed', 'filmed'],
+  ['Fisting', 'fisting'],
+  ['Footjob', 'footjob'],
+  ['Furry', 'furry'],
+  ['Futanari', 'futanari'],
+  ['Gangbang', 'gangbang'],
+  ['Gyaru', 'gyaru'],
+  ['Hand Job', 'hand-job'],
+  ['Harem', 'harem'],
+  ['Historical', 'historical'],
+  ['Horny Slut', 'horny-slut'],
+  ['Horror', 'horror'],
+  ['Housewife', 'housewife'],
+  ['Humiliation', 'humiliation'],
+  ['Incest', 'incest'],
+  ['Inflation', 'inflation'],
+  ['Internal Cumshot', 'internal-cumshot'],
+  ['Lactation', 'lactation'],
+  ['Large Breasts', 'large-breasts'],
+  ['Magical Girls', 'magical-girls'],
+  ['Maid', 'maid'],
+  ['Martial Arts', 'martial-arts'],
+  ['Masturbation', 'masturbation'],
+  ['Megane', 'megane'],
+  ['MILF', 'milf'],
+  ['Mind Break', 'mind-break'],
+  ['Molestation', 'molestation'],
+  ['Monsters', 'monsters'],
+  ['Nekomimi', 'nekomimi'],
+  ['Nipple Fuck', 'nipple-fuck'],
+  ['Non-Japanese', 'non-japanese'],
+  ['NTR', 'ntr'],
+  ['Nuns', 'nuns'],
+  ['Nurses', 'nurses'],
+  ['Office Ladies', 'office-ladies'],
+  ['Orc/Goblin', 'orc'],
+  ['Orgy', 'orgy'],
+  ['Police', 'police'],
+  ['POV', 'pov'],
+  ['Pregnant', 'pregnant'],
+  ['Princess', 'princess'],
+  ['Public Sex', 'public-sex'],
+  ['Rape', 'rape'],
+  ['Rim job', 'rim-job'],
+  ['Romance', 'romance'],
+  ['Scat', 'scat'],
+  ['School Girls', 'school-girls'],
+  ['Sci-Fi', 'sci-fi'],
+  ['Sci-Fi & Fantasy', 'sci-fi-fantasy'],
+  ['Shimapan', 'shimapan'],
+  ['Short', 'short'],
+  ['Small Breasts', 'small-breasts'],
+  ['Sports', 'sports'],
+  ['Squirting', 'squirting'],
+  ['Step Daughter', 'step-daughter'],
+  ['Step Mother', 'step-mother'],
+  ['Step Sister', 'step-sister'],
+  ['Stocking', 'stocking'],
+  ['Strap-on', 'strap-on'],
+  ['Succubus', 'succubus'],
+  ['Super Power', 'super-power'],
+  ['Supernatural', 'supernatural'],
+  ['Swimsuit', 'swimsuit'],
+  ['Tentacles', 'tentacles'],
+  ['Three some', 'three-some'],
+  ['Tits Fuck', 'tits-fuck'],
+  ['Toys', 'toys'],
+  ['Train Molestation', 'train-molestation'],
+  ['Trap', 'trap'],
+  ['Tsundere', 'tsundere'],
+  ['Ugly Bastard', 'ugly-bastard'],
+  ['Uncensored', 'uncensored'],
+  ['Urination', 'urination'],
+  ['Vampire', 'vampire'],
+  ['Vanilla', 'vanilla'],
+  ['Virgins', 'virgins'],
+  ['Watersports', 'watersports'],
+  ['Widow', 'widow'],
+  ['Womb Tattoo', 'womb-tattoo'],
+  ['X-Ray', 'x-ray'],
+  ['Yuri', 'yuri']
+];
+
+function genreSlugMap() {
+  var map = {};
+  GENRES.forEach(function (pair) {
+    map[String(pair[0]).toLowerCase()] = pair[1];
+    map[String(pair[1]).toLowerCase()] = pair[1];
+  });
+  map['school girl'] = 'school-girls';
+  map['schoolgirl'] = 'school-girls';
+  map['tentacle'] = 'tentacles';
+  map['blow job'] = 'blowjob';
+  map['foot job'] = 'footjob';
+  map['rimjob'] = 'rim-job';
+  map['monster'] = 'monsters';
+  map['nurse'] = 'nurses';
+  map['virgin'] = 'virgins';
+  map['orc'] = 'orc';
+  map['netorare'] = 'ntr';
+  map['big boobs'] = 'large-breasts';
+  map['large breasts'] = 'large-breasts';
+  map['small boobs'] = 'small-breasts';
+  map['swim suit'] = 'swimsuit';
+  map['threesome'] = 'three-some';
+  return map;
+}
+
+function parseGenreSlugs(query) {
+  var q = String(query || '').trim();
+  if (!q) return [];
+  var map = genreSlugMap();
+  var slugs = [];
+  var seen = {};
+  function add(name) {
+    var key = String(name || '').trim().toLowerCase().replace(/^genre:/i, '');
+    if (!key) return;
+    var slug = map[key];
+    if (!slug || seen[slug]) return;
+    seen[slug] = true;
+    slugs.push(slug);
+  }
+  if (q.indexOf(' | ') >= 0) {
+    q.split(' | ').forEach(add);
+    return slugs;
+  }
+  if (map[q.toLowerCase()]) {
+    add(q);
+    return slugs;
+  }
+  var re = /genre:([^\|]+?)(?=\s+genre:|$)/gi;
+  var m;
+  var found = false;
+  while ((m = re.exec(q)) !== null) {
+    found = true;
+    add(m[1]);
+  }
+  return found ? slugs : [];
+}
+
+async function getGenres() {
+  return GENRES.map(function (pair) {
+    return { id: pair[1], name: pair[0] };
+  });
+}
+
+
 function absolute(url) {
   if (!url) return '';
   if (/^https?:\/\//i.test(url)) return url;
@@ -81,11 +266,31 @@ function parseSearchResults(html, query) {
   return out;
 }
 
+function parseOrderQuery(query) {
+  var m = String(query || '')
+    .trim()
+    .match(/^order:([a-z0-9\-]+)$/i);
+  return m ? m[1].toLowerCase() : '';
+}
+
 async function searchResults(query) {
-  var url = BASE + '/?s=' + encodeURIComponent(query || '');
+  var order = parseOrderQuery(query);
+  var genreSlugs = parseGenreSlugs(query);
+  var url;
+  var filterTitles = true;
+  if (order) {
+    // Mama has no sort API — homepage / recent listing is the catalog rail.
+    url = BASE + '/';
+    filterTitles = false;
+  } else if (genreSlugs.length) {
+    url = BASE + '/genre/' + encodeURIComponent(genreSlugs[0]) + '/';
+    filterTitles = false;
+  } else {
+    url = BASE + '/?s=' + encodeURIComponent(query || '');
+  }
   var res = await fetchv2(url, headers(BASE + '/'), 'GET', null);
   if (!res.ok) throw new Error('hentaimama search failed: HTTP ' + res.status);
-  return parseSearchResults(await res.text(), query);
+  return parseSearchResults(await res.text(), filterTitles ? query : '');
 }
 
 async function extractEpisodes(showUrl) {
@@ -212,6 +417,7 @@ if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     searchResults: searchResults,
     extractEpisodes: extractEpisodes,
-    extractStreamUrl: extractStreamUrl
+    extractStreamUrl: extractStreamUrl,
+    getGenres: getGenres
   };
 }

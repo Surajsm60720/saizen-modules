@@ -26,6 +26,128 @@ function headers(referer) {
   };
 }
 
+/** hentaihaven.com /tag/<slug>/ (CSAM tags omitted). */
+var GENRES = [
+  ['3D', '3d'],
+  ['Ahegao', 'ahegao'],
+  ['Anal', 'anal'],
+  ['BDSM', 'bdsm'],
+  ['Big Boobs', 'big-boobs'],
+  ['Blow Job', 'blow-job'],
+  ['Bondage', 'bondage'],
+  ['Boob Job', 'boob-job'],
+  ['Censored', 'censored'],
+  ['Comedy', 'comedy'],
+  ['Cosplay', 'cosplay'],
+  ['Creampie', 'creampie'],
+  ['Dark Skin', 'dark-skin'],
+  ['Facial', 'facial'],
+  ['Fantasy', 'fantasy'],
+  ['Filmed', 'filmed'],
+  ['Foot Job', 'foot-job'],
+  ['Futanari', 'futanari'],
+  ['Gangbang', 'gangbang'],
+  ['Glasses', 'glasses'],
+  ['Hand Job', 'hand-job'],
+  ['Harem', 'harem'],
+  ['Horror', 'horror'],
+  ['Incest', 'incest'],
+  ['Inflation', 'inflation'],
+  ['Lactation', 'lactation'],
+  ['Maid', 'maid'],
+  ['Masturbation', 'masturbation'],
+  ['MILF', 'milf'],
+  ['Mind Break', 'mind-break'],
+  ['Mind Control', 'mind-control'],
+  ['Monster', 'monster'],
+  ['Nekomimi', 'nekomimi'],
+  ['NTR', 'ntr'],
+  ['Nurse', 'nurse'],
+  ['Oral', 'oral'],
+  ['Orgy', 'orgy'],
+  ['POV', 'pov'],
+  ['Pregnant', 'pregnant'],
+  ['Public Sex', 'public-sex'],
+  ['Rape', 'rape'],
+  ['Reverse Rape', 'reverse-rape'],
+  ['Rimjob', 'rimjob'],
+  ['Scat', 'scat'],
+  ['School Girl', 'school-girl'],
+  ['Softcore', 'softcore'],
+  ['Swimsuit', 'swimsuit'],
+  ['Teacher', 'teacher'],
+  ['Tentacle', 'tentacle'],
+  ['Threesome', 'threesome'],
+  ['Toys', 'toys'],
+  ['Trap', 'trap'],
+  ['Tsundere', 'tsundere'],
+  ['Ugly Bastard', 'ugly-bastard'],
+  ['Uncensored', 'uncensored'],
+  ['Vanilla', 'vanilla'],
+  ['Virgin', 'virgin'],
+  ['Watersports', 'watersports'],
+  ['X-Ray', 'x-ray'],
+  ['Yaoi', 'yaoi'],
+  ['Yuri', 'yuri']
+];
+
+function genreSlugMap() {
+  var map = {};
+  GENRES.forEach(function (pair) {
+    map[String(pair[0]).toLowerCase()] = pair[1];
+    map[String(pair[1]).toLowerCase()] = pair[1];
+  });
+  map['schoolgirl'] = 'school-girl';
+  map['school girls'] = 'school-girl';
+  map['swim suit'] = 'swimsuit';
+  map['tentacles'] = 'tentacle';
+  map['blowjob'] = 'blow-job';
+  map['footjob'] = 'foot-job';
+  map['handjob'] = 'hand-job';
+  map['netorare'] = 'ntr';
+  map['milf'] = 'milf';
+  return map;
+}
+
+function parseGenreSlugs(query) {
+  var q = String(query || '').trim();
+  if (!q) return [];
+  var map = genreSlugMap();
+  var slugs = [];
+  var seen = {};
+  function add(name) {
+    var key = String(name || '').trim().toLowerCase().replace(/^genre:/i, '');
+    if (!key) return;
+    var slug = map[key];
+    if (!slug || seen[slug]) return;
+    seen[slug] = true;
+    slugs.push(slug);
+  }
+  if (q.indexOf(' | ') >= 0) {
+    q.split(' | ').forEach(add);
+    return slugs;
+  }
+  if (map[q.toLowerCase()]) {
+    add(q);
+    return slugs;
+  }
+  var re = /genre:([^\|]+?)(?=\s+genre:|$)/gi;
+  var m;
+  var found = false;
+  while ((m = re.exec(q)) !== null) {
+    found = true;
+    add(m[1]);
+  }
+  return found ? slugs : [];
+}
+
+async function getGenres() {
+  return GENRES.map(function (pair) {
+    return { id: pair[1], name: pair[0] };
+  });
+}
+
+
 function absolute(url) {
   if (!url) return '';
   if (/^https?:\/\//i.test(url)) return url;
@@ -123,11 +245,30 @@ function parseSearchResults(html, query) {
   return out;
 }
 
+function parseOrderQuery(query) {
+  var m = String(query || '')
+    .trim()
+    .match(/^order:([a-z0-9\-]+)$/i);
+  return m ? m[1].toLowerCase() : '';
+}
+
 async function searchResults(query) {
-  var url = BASE + '/?s=' + encodeURIComponent(query || '');
+  var order = parseOrderQuery(query);
+  var genreSlugs = parseGenreSlugs(query);
+  var url;
+  var filterTitles = true;
+  if (order) {
+    url = BASE + '/';
+    filterTitles = false;
+  } else if (genreSlugs.length) {
+    url = BASE + '/tag/' + encodeURIComponent(genreSlugs[0]) + '/';
+    filterTitles = false;
+  } else {
+    url = BASE + '/?s=' + encodeURIComponent(query || '');
+  }
   var res = await fetchv2(url, headers(BASE + '/'), 'GET', null);
   if (!res.ok) throw new Error('hentaihaven search failed: HTTP ' + res.status);
-  return parseSearchResults(await res.text(), query);
+  return parseSearchResults(await res.text(), filterTitles ? query : '');
 }
 
 async function extractEpisodes(showUrl) {
@@ -243,6 +384,7 @@ if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     searchResults: searchResults,
     extractEpisodes: extractEpisodes,
-    extractStreamUrl: extractStreamUrl
+    extractStreamUrl: extractStreamUrl,
+    getGenres: getGenres
   };
 }
