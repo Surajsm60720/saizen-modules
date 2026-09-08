@@ -12,7 +12,7 @@
  *   - The embed page exposes JWPlayer `file: "https://…mp4"`.
  */
 
-// saizen-adult-catalog-v4
+// saizen-adult-catalog-v5
 var BASE = 'https://hentaimama.io';
 var UA =
   'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 ' +
@@ -244,26 +244,40 @@ function matchesQuery(title, query) {
 function parseSearchResults(html, query) {
   var out = [];
   var seen = {};
-  var re = /href="(https:\/\/hentaimama\.io\/tvshows\/([^"\/]+)\/)"/gi;
-  var match;
-  while ((match = re.exec(html)) !== null) {
-    var url = match[1];
-    var slug = match[2];
-    if (seen[slug]) continue;
-    var win = html.slice(Math.max(0, match.index - 200), match.index + 400);
+
+  function pushCard(url, slug, win) {
+    if (!slug || seen[slug]) return;
     var title =
       (win.match(/title="([^"]+)"/) || [])[1] ||
       (win.match(/alt="([^"]+)"/) || [])[1] ||
       slug.replace(/-/g, ' ');
     title = decodeHtml(title).trim();
     if (!matchesQuery(title, query) && !matchesQuery(slug.replace(/-/g, ' '), query)) {
-      continue;
+      return;
     }
     seen[slug] = true;
-    var image = (win.match(/src="(https:\/\/hentaimama\.io\/[^"]+\.(?:jpg|jpeg|png|webp)[^"]*)"/i) ||
-      [])[1] || '';
+    var image =
+      (win.match(/src="(https:\/\/hentaimama\.io\/[^"]+\.(?:jpg|jpeg|png|webp)[^"]*)"/i) ||
+        [])[1] || '';
     out.push({ title: title, image: image, url: url });
   }
+
+  var re = /href="(https:\/\/hentaimama\.io\/tvshows\/([^"\/]+)\/)"/gi;
+  var match;
+  while ((match = re.exec(html)) !== null) {
+    var win = html.slice(Math.max(0, match.index - 200), match.index + 400);
+    pushCard(match[1], match[2], win);
+  }
+
+  // /new-monthly-hentai/ and /recent-episodes/ only list episode URLs — collapse to series.
+  var epRe = /href="(https:\/\/hentaimama\.io\/episodes\/([^"\/]+)-episode-\d+\/)"/gi;
+  while ((match = epRe.exec(html)) !== null) {
+    var seriesSlug = match[2];
+    if (!seriesSlug || seen[seriesSlug]) continue;
+    win = html.slice(Math.max(0, match.index - 200), match.index + 400);
+    pushCard(BASE + '/tvshows/' + seriesSlug + '/', seriesSlug, win);
+  }
+
   return out;
 }
 

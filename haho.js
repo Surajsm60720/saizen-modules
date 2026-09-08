@@ -14,7 +14,7 @@
  *   - Optional timeline VTT on filegasm may be chapter markers, not dialogue.
  */
 
-// saizen-adult-catalog-v4
+// saizen-adult-catalog-v5
 var BASE = 'https://haho.moe';
 var UA =
   'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 ' +
