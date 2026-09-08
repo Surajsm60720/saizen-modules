@@ -239,20 +239,27 @@ function matchesQuery(card, query) {
   });
 }
 
-function parseOrderQuery(query) {
+/** `order:view-count` or `order:view-count+tag:uncensored` */
+function parseCatalogQuery(query) {
   var m = String(query || '')
     .trim()
-    .match(/^order:([a-z0-9\-]+)$/i);
-  return m ? m[1].toLowerCase() : '';
+    .match(/^order:([a-z0-9\-]+)(?:\+tag:([a-z0-9\-]+))?$/i);
+  if (!m) return { order: '', tag: '' };
+  return { order: m[1].toLowerCase(), tag: m[2] ? m[2].toLowerCase() : '' };
+}
+
+function parseOrderQuery(query) {
+  return parseCatalogQuery(query).order;
 }
 
 async function searchResults(query) {
-  var order = parseOrderQuery(query);
+  var catalog = parseCatalogQuery(query);
   var genreTags = parseGenreTags(query);
+  if (catalog.tag) genreTags = [catalog.tag.replace(/-/g, ' ')].concat(genreTags);
   var q = String(query || '').trim();
   var filterTitles = true;
-  if (order) {
-    // Newest-ish listing
+  if (catalog.order && !catalog.tag) {
+    // Newest-ish listing (no sort API)
     q = '';
     filterTitles = false;
   } else if (genreTags.length) {

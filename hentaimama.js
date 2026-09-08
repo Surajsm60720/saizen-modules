@@ -266,19 +266,26 @@ function parseSearchResults(html, query) {
   return out;
 }
 
-function parseOrderQuery(query) {
+/** `order:view-count` or `order:view-count+tag:uncensored` */
+function parseCatalogQuery(query) {
   var m = String(query || '')
     .trim()
-    .match(/^order:([a-z0-9\-]+)$/i);
-  return m ? m[1].toLowerCase() : '';
+    .match(/^order:([a-z0-9\-]+)(?:\+tag:([a-z0-9\-]+))?$/i);
+  if (!m) return { order: '', tag: '' };
+  return { order: m[1].toLowerCase(), tag: m[2] ? m[2].toLowerCase() : '' };
+}
+
+function parseOrderQuery(query) {
+  return parseCatalogQuery(query).order;
 }
 
 async function searchResults(query) {
-  var order = parseOrderQuery(query);
+  var catalog = parseCatalogQuery(query);
   var genreSlugs = parseGenreSlugs(query);
+  if (catalog.tag) genreSlugs = [catalog.tag].concat(genreSlugs);
   var url;
   var filterTitles = true;
-  if (order) {
+  if (catalog.order && !catalog.tag) {
     // Mama has no sort API — homepage / recent listing is the catalog rail.
     url = BASE + '/';
     filterTitles = false;

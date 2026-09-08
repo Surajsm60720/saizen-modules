@@ -302,26 +302,33 @@ function matchesQuery(card, query) {
   });
 }
 
-function parseOrderQuery(query) {
+/** `order:view-count` or `order:view-count+tag:uncensored` */
+function parseCatalogQuery(query) {
   var m = String(query || '')
     .trim()
-    .match(/^order:([a-z0-9\-]+)$/i);
-  return m ? m[1].toLowerCase() : '';
+    .match(/^order:([a-z0-9\-]+)(?:\+tag:([a-z0-9\-]+))?$/i);
+  if (!m) return { order: '', tag: '' };
+  return { order: m[1].toLowerCase(), tag: m[2] ? m[2].toLowerCase() : '' };
 }
 
-async function fetchCards(query, genreSlugs, order) {
+function parseOrderQuery(query) {
+  return parseCatalogQuery(query).order;
+}
+
+async function fetchCards(query, genreSlugs, order, extraTag) {
   var url;
+  var parts = [];
   if (order) {
-    url = BASE + '/search?order=' + encodeURIComponent(order);
-  } else if (genreSlugs && genreSlugs.length) {
-    url =
-      BASE +
-      '/search?' +
-      genreSlugs
-        .map(function (s) {
-          return 'tags[]=' + encodeURIComponent(s);
-        })
-        .join('&');
+    parts.push('order=' + encodeURIComponent(order));
+  }
+  var tags = (genreSlugs && genreSlugs.length ? genreSlugs.slice() : []).concat(
+    extraTag ? [extraTag] : []
+  );
+  tags.forEach(function (s) {
+    if (s) parts.push('tags[]=' + encodeURIComponent(s));
+  });
+  if (parts.length) {
+    url = BASE + '/search?' + parts.join('&');
   } else {
     url = BASE + '/search?search=' + encodeURIComponent(query || '');
   }
@@ -356,12 +363,14 @@ async function getHomeSections() {
 }
 
 async function searchResults(query) {
-  var order = parseOrderQuery(query);
-  if (order) {
-    return collapseCards(await fetchCards('', [], order)).slice(0, 24);
+  var catalog = parseCatalogQuery(query);
+  if (catalog.order) {
+    return collapseCards(
+      await fetchCards('', [], catalog.order, catalog.tag)
+    ).slice(0, 24);
   }
   var genreSlugs = parseGenreSlugs(query);
-  var cards = await fetchCards(query, genreSlugs, '');
+  var cards = await fetchCards(query, genreSlugs, '', '');
   // Genre / tag browse: keep all cards. Free-text: filter locally.
   if (!genreSlugs.length) {
     cards = cards.filter(function (c) {
