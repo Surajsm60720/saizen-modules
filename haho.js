@@ -14,7 +14,7 @@
  *   - Optional timeline VTT on filegasm may be chapter markers, not dialogue.
  */
 
-// saizen-adult-catalog-v3
+// saizen-adult-catalog-v4
 var BASE = 'https://haho.moe';
 var UA =
   'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 ' +
@@ -234,9 +234,23 @@ function parseSearchCards(html) {
       '';
     if (!title) continue;
     seen[id] = true;
-    out.push({ title: title.trim(), image: '', url: url });
+    var img =
+      (window.match(/src="(https:\/\/haho\.moe\/[^"]+\.(?:jpg|jpeg|png|webp)[^"]*)"/i) ||
+        [])[1] || '';
+    out.push({ title: title.trim(), image: img ? absolute(img) : '', url: url });
   }
   return out;
+}
+
+/** Homepage “Top” tabs (#top-day / #top-week / …) — real view rankings. */
+function parseTopSection(html, sectionId) {
+  var re = new RegExp(
+    'id=["\']' + sectionId + '["\']([\\s\\S]*?)(?=id=["\']top-|id=["\']footer|</main>|$)',
+    'i'
+  );
+  var m = html.match(re);
+  if (!m) return [];
+  return parseSearchCards(m[1]).slice(0, 24);
 }
 
 function coverFromSeriesHtml(html) {
@@ -343,15 +357,31 @@ async function searchResults(query) {
   var filterTitles = true;
   var useJson = false;
 
-  var page = 1;
+  // Homepage Top tabs are real view rankings (top-day / top-week / top-total).
   if (catalog.order && !catalog.tag) {
-    // Approximate catalog sorts — haho has no true order= API.
+    var topId = '';
+    if (catalog.order === 'view-count' || catalog.order === 'popular' || catalog.order === 'trending') {
+      topId = 'top-week';
+    } else if (catalog.order === 'recently-released') {
+      topId = 'top-day';
+    }
+    if (topId) {
+      var homeRes = await fetchv2(BASE + '/', headers(BASE + '/'), 'GET', null);
+      if (homeRes.ok) {
+        var homeHtml = await homeRes.text();
+        var topCards = parseTopSection(homeHtml, topId);
+        if (!topCards.length && topId !== 'top-total') {
+          topCards = parseTopSection(homeHtml, 'top-total');
+        }
+        if (topCards.length) {
+          await backfillCovers(topCards, 12);
+          return topCards;
+        }
+      }
+    }
+    // recently-uploaded (and top-tab miss): blank anime listing
     filterTitles = false;
     q = '';
-    if (catalog.order === 'recently-released') page = 2;
-    else if (catalog.order === 'view-count' || catalog.order === 'popular' || catalog.order === 'trending') {
-      page = 1;
-    }
   } else if (genreTags.length) {
     q = genreTags
       .map(function (t) {
@@ -373,25 +403,13 @@ async function searchResults(query) {
   }
 
   var url = BASE + '/anime?q=' + encodeURIComponent(q);
-  if (page > 1) url += '&page=' + page;
   var res = await fetchv2(url, headers(BASE + '/'), 'GET', null);
-  if (!res.ok && page > 1) {
-    res = await fetchv2(BASE + '/anime?q=', headers(BASE + '/'), 'GET', null);
-  }
   if (!res.ok) throw new Error('haho search failed: HTTP ' + res.status);
   var cards = parseSearchCards(await res.text());
   if (filterTitles) {
     cards = cards.filter(function (c) {
       return matchesQuery(c, query);
     });
-  }
-  if (
-    catalog.order === 'view-count' ||
-    catalog.order === 'popular' ||
-    catalog.order === 'trending'
-  ) {
-    // Site has no views sort — rotate the listing so the rail isn't identical to Recent.
-    cards = cards.slice(4).concat(cards.slice(0, 4));
   }
   await backfillCovers(cards, 12);
   return cards;

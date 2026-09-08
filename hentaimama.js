@@ -12,7 +12,7 @@
  *   - The embed page exposes JWPlayer `file: "https://…mp4"`.
  */
 
-// saizen-adult-catalog-v3
+// saizen-adult-catalog-v4
 var BASE = 'https://hentaimama.io';
 var UA =
   'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 ' +
@@ -287,11 +287,11 @@ async function searchResults(query) {
   var url;
   var filterTitles = true;
   if (catalog.order && !catalog.tag) {
-    // Approximate catalog sorts — Mama has no true order= API.
+    // Real Mama listing pages (homepage probe).
     if (catalog.order === 'view-count' || catalog.order === 'popular' || catalog.order === 'trending') {
-      url = BASE + '/?orderby=views&order=desc';
+      url = BASE + '/new-monthly-hentai/';
     } else if (catalog.order === 'recently-released') {
-      url = BASE + '/page/2/';
+      url = BASE + '/recent-episodes/';
     } else {
       url = BASE + '/';
     }
