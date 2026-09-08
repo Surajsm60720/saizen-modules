@@ -13,7 +13,7 @@
  *     returns HLS playlist (octopusmanifest.org) + optional eng sidecar under s/en.vtt
  */
 
-// saizen-adult-catalog-v2
+// saizen-adult-catalog-v3
 var BASE = 'https://hentaihaven.com';
 var UA =
   'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 ' +
@@ -266,7 +266,14 @@ async function searchResults(query) {
   var url;
   var filterTitles = true;
   if (catalog.order && !catalog.tag) {
-    url = BASE + '/';
+    // Approximate catalog sorts — Haven has no true order= API.
+    if (catalog.order === 'view-count' || catalog.order === 'popular' || catalog.order === 'trending') {
+      url = BASE + '/?orderby=views&order=desc';
+    } else if (catalog.order === 'recently-released') {
+      url = BASE + '/page/2/';
+    } else {
+      url = BASE + '/';
+    }
     filterTitles = false;
   } else if (genreSlugs.length) {
     url = BASE + '/tag/' + encodeURIComponent(genreSlugs[0]) + '/';
@@ -275,6 +282,9 @@ async function searchResults(query) {
     url = BASE + '/?s=' + encodeURIComponent(query || '');
   }
   var res = await fetchv2(url, headers(BASE + '/'), 'GET', null);
+  if (!res.ok && catalog.order) {
+    res = await fetchv2(BASE + '/', headers(BASE + '/'), 'GET', null);
+  }
   if (!res.ok) throw new Error('hentaihaven search failed: HTTP ' + res.status);
   return parseSearchResults(await res.text(), filterTitles ? query : '');
 }

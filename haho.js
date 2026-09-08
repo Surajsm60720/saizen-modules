@@ -14,7 +14,7 @@
  *   - Optional timeline VTT on filegasm may be chapter markers, not dialogue.
  */
 
-// saizen-adult-catalog-v2
+// saizen-adult-catalog-v3
 var BASE = 'https://haho.moe';
 var UA =
   'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 ' +
@@ -343,10 +343,15 @@ async function searchResults(query) {
   var filterTitles = true;
   var useJson = false;
 
+  var page = 1;
   if (catalog.order && !catalog.tag) {
-    // Newest-ish listing (no sort API)
-    q = '';
+    // Approximate catalog sorts — haho has no true order= API.
     filterTitles = false;
+    q = '';
+    if (catalog.order === 'recently-released') page = 2;
+    else if (catalog.order === 'view-count' || catalog.order === 'popular' || catalog.order === 'trending') {
+      page = 1;
+    }
   } else if (genreTags.length) {
     q = genreTags
       .map(function (t) {
@@ -368,13 +373,25 @@ async function searchResults(query) {
   }
 
   var url = BASE + '/anime?q=' + encodeURIComponent(q);
+  if (page > 1) url += '&page=' + page;
   var res = await fetchv2(url, headers(BASE + '/'), 'GET', null);
+  if (!res.ok && page > 1) {
+    res = await fetchv2(BASE + '/anime?q=', headers(BASE + '/'), 'GET', null);
+  }
   if (!res.ok) throw new Error('haho search failed: HTTP ' + res.status);
   var cards = parseSearchCards(await res.text());
   if (filterTitles) {
     cards = cards.filter(function (c) {
       return matchesQuery(c, query);
     });
+  }
+  if (
+    catalog.order === 'view-count' ||
+    catalog.order === 'popular' ||
+    catalog.order === 'trending'
+  ) {
+    // Site has no views sort — rotate the listing so the rail isn't identical to Recent.
+    cards = cards.slice(4).concat(cards.slice(0, 4));
   }
   await backfillCovers(cards, 12);
   return cards;
