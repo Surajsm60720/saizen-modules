@@ -4,7 +4,9 @@
  * Adult (nsfw) source. Contract from docs/MODULE_CONTRACT.md.
  *
  * Site notes (verified against live responses):
- *   - Search is GET /anime?q=… (form name="q" on the homepage).
+ *   - Free-text search: POST /anime/search (JSON autocomplete) returns cover images.
+ *   - Genre / catalog browse: GET /anime?q=… HTML cards have no <img> — cover is
+ *     backfilled from each series page og:image / cover-image.
  *   - Series pages are /anime/<id>; episodes are /anime/<id>/<n>.
  *   - Episode pages embed /embed?v=<token>; the embed HTML exposes
  *     <source src="https://s1.filegasm.com/…?download_token=…" title="480p|360p">.
@@ -12,10 +14,14 @@
  *   - Optional timeline VTT on filegasm may be chapter markers, not dialogue.
  */
 
+// saizen-adult-catalog-v2
 var BASE = 'https://haho.moe';
 var UA =
   'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 ' +
   '(KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1';
+
+var csrfToken = '';
+var sessionPrimed = false;
 
 function headers(referer) {
   return {
@@ -23,6 +29,16 @@ function headers(referer) {
     Referer: referer || BASE + '/',
     'Accept-Language': 'en-US,en;q=0.9'
   };
+}
+
+async function ensureSession() {
+  if (sessionPrimed && csrfToken) return;
+  var res = await fetchv2(BASE + '/', headers(BASE + '/'), 'GET', null);
+  if (!res.ok) throw new Error('haho session failed: HTTP ' + res.status);
+  var html = await res.text();
+  var m = html.match(/name=["']csrf-token["']\s+content=["']([^"']+)["']/i);
+  csrfToken = m ? m[1] : '';
+  sessionPrimed = true;
 }
 
 /** haho.moe genre: operator tags (subset of /genre index, adult-relevant). */
@@ -204,7 +220,7 @@ function seriesIdFromUrl(url) {
 function parseSearchCards(html) {
   var out = [];
   var seen = {};
-  // Cards use title="…" on the series anchor.
+  // Cards use title="…" on the series anchor — no <img> in the search HTML.
   var re = /href="(https:\/\/haho\.moe\/anime\/([a-z0-9]+))"/gi;
   var match;
   while ((match = re.exec(html)) !== null) {
@@ -218,10 +234,77 @@ function parseSearchCards(html) {
       '';
     if (!title) continue;
     seen[id] = true;
-    var img = (window.match(/src="(https:\/\/haho\.moe\/[^"]+\.(?:jpg|jpeg|png|webp)[^"]*)"/i) ||
-      [])[1] || '';
-    out.push({ title: title.trim(), image: img, url: url });
+    out.push({ title: title.trim(), image: '', url: url });
   }
+  return out;
+}
+
+function coverFromSeriesHtml(html) {
+  return (
+    (html.match(/property=["']og:image["']\s+content=["']([^"']+)["']/i) || [])[1] ||
+    (html.match(/content=["']([^"']+)["']\s+property=["']og:image["']/i) || [])[1] ||
+    (html.match(/class=["'][^"']*cover-image[^"']*["'][^>]*\ssrc=["']([^"']+)["']/i) ||
+      [])[1] ||
+    (html.match(/src=["'](https:\/\/haho\.moe\/images\/anime\/[^"']+)["']/i) || [])[1] ||
+    ''
+  );
+}
+
+async function backfillCovers(cards, limit) {
+  var need = cards.filter(function (c) {
+    return c && c.url && !c.image;
+  }).slice(0, typeof limit === 'number' ? limit : 12);
+  await Promise.all(
+    need.map(async function (c) {
+      try {
+        var res = await fetchv2(c.url, headers(BASE + '/'), 'GET', null);
+        if (!res.ok) return;
+        var img = coverFromSeriesHtml(await res.text());
+        if (img) c.image = absolute(img);
+      } catch (e) {
+        /* keep empty image */
+      }
+    })
+  );
+  return cards;
+}
+
+async function jsonSearch(q) {
+  await ensureSession();
+  var res = await fetchv2(
+    BASE + '/anime/search',
+    Object.assign(headers(BASE + '/anime'), {
+      'X-Requested-With': 'XMLHttpRequest',
+      'X-CSRF-TOKEN': csrfToken,
+      'Content-Type': 'application/x-www-form-urlencoded',
+      Accept: 'application/json, text/javascript, */*; q=0.01'
+    }),
+    'POST',
+    'q=' + encodeURIComponent(q || '')
+  );
+  if (!res.ok) throw new Error('haho json search failed: HTTP ' + res.status);
+  var raw = await res.text();
+  var data;
+  try {
+    data = JSON.parse(raw);
+  } catch (e) {
+    throw new Error('haho json search: invalid JSON');
+  }
+  if (!Array.isArray(data)) return [];
+  var out = [];
+  var seen = {};
+  data.forEach(function (item) {
+    if (!item) return;
+    var url = absolute(item.url || '');
+    var id = seriesIdFromUrl(url);
+    if (!url || !id || seen[id]) return;
+    seen[id] = true;
+    out.push({
+      title: String(item.title || '').trim() || id,
+      image: absolute(item.cover || item.image || ''),
+      url: url
+    });
+  });
   return out;
 }
 
@@ -258,6 +341,8 @@ async function searchResults(query) {
   if (catalog.tag) genreTags = [catalog.tag.replace(/-/g, ' ')].concat(genreTags);
   var q = String(query || '').trim();
   var filterTitles = true;
+  var useJson = false;
+
   if (catalog.order && !catalog.tag) {
     // Newest-ish listing (no sort API)
     q = '';
@@ -269,7 +354,19 @@ async function searchResults(query) {
       })
       .join(' ');
     filterTitles = false;
+  } else if (q && !/^order:/i.test(q) && !/^genre:/i.test(q)) {
+    useJson = true;
   }
+
+  if (useJson) {
+    try {
+      var jsonCards = await jsonSearch(q);
+      if (jsonCards.length) return jsonCards.slice(0, 24);
+    } catch (e) {
+      // Fall through to HTML scrape.
+    }
+  }
+
   var url = BASE + '/anime?q=' + encodeURIComponent(q);
   var res = await fetchv2(url, headers(BASE + '/'), 'GET', null);
   if (!res.ok) throw new Error('haho search failed: HTTP ' + res.status);
@@ -279,6 +376,7 @@ async function searchResults(query) {
       return matchesQuery(c, query);
     });
   }
+  await backfillCovers(cards, 12);
   return cards;
 }
 

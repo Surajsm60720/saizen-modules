@@ -12,6 +12,7 @@
  *   - The embed page exposes JWPlayer `file: "https://…mp4"`.
  */
 
+// saizen-adult-catalog-v2
 var BASE = 'https://hentaimama.io';
 var UA =
   'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 ' +
